@@ -2,18 +2,16 @@ import os
 import streamlit as st
 import pandas as pd
 import hmac
-from typing import Any
-
-
-# Password function
+        
 def check_password():
     """Returns `True` if the user had the correct password."""
 
     def password_entered():
         """Checks whether a password entered by the user is correct."""
-        if hmac.compare_digest(st.session_state["password"], st.secrets["password"]):
+        secret_password = os.getenv("PASSWORD")
+        if hmac.compare_digest(st.session_state["password"], secret_password):
             st.session_state["password_correct"] = True
-            del st.session_state["password"]  # deletes password 
+            del st.session_state["password"]  # deletes password
         else:
             st.session_state["password_correct"] = False
 
@@ -30,73 +28,37 @@ def check_password():
 
 if not check_password():
     st.stop()  # Do not continue if password is wrong
-
-
+    
+        
 # Streamlit title and subtitle
 st.title("ARROW Data Counter")  # Title
 st.write("This app will count non-blank record counts for variables given specified criteria.")
+ 
+# Upload dataset
+data = pd.read_excel("PRODRSOMDashboardDat_DATA_2024-06-04_1845.xlsx")
 
-
-# Cache the data after loading for performance. If we ever have more real time data,
-# we should change this to a session state variable.
-@st.cache_data(show_spinner='Loading data...')
-def load_and_autofill_data() -> pd.DataFrame:
-    # Upload dataset
-    data = pd.read_excel("PRODRSOMDashboardDat_DATA_2024-06-04_1845.xlsx")
-
-    # Propagate values for sex_dashboard, graft_dashboard2, and prior_aclr so they are consistent throughout the record$
-    data = autofill(data, ['sex_dashboard', 'graft_dashboard2', 'prior_aclr'])
-    return data
-
-
-def autofill(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
-    """Function to fill missing values for each record id
-
-    Args:
-        df (pd.DataFrame): arrow dataset
-        columns (list[str]): columns to autofill
-
-    Returns:
-        pd.DataFrame: autofilled dataframe
-    """
+# Function to fill missing values for each record id
+def autofill(df, columns):
     for column in columns:
         df[column] = df.groupby('record_id')[column].ffill().bfill()
     return df
+  
+# Propagate values for sex_dashboard, graft_dashboard2, and prior_aclr so they are consistent throughout the record$
+data = autofill(data, ['sex_dashboard', 'graft_dashboard2', 'prior_aclr'])
 
-
-data = load_and_autofill_data()
-
-
-def filter_count(df: pd.DataFrame, cols: dict[str, Any], variables: list[str]) -> tuple[dict[str, int], pd.DataFrame]:
-    """Function applies filters and counts non-blank records for each variable
-
-    Args:
-        df (pd.DataFrame): arrow dataframe
-        cols (list[str]): list of columns to filter
-        variables (list[str]): list of columns to display counts
-
-    Returns:
-        tuple[dict[str, int], pd.DataFrame]: tuple of dictionary of non-blank counts
-                                             and the filtered dataframe 
-    """
+# Function applies filters and counts non-blank records for each variable
+def filter_count(df, cols, variables):
     filtered_df = df.copy()
-    # Check if we should only look at record_ids with long-term outcomes
-    if only_long_term_outcomes:
-        filtered_df = filtered_df.groupby('record_id').filter(
-            lambda grp: grp['long_term_outcomes_complete'].notna().sum() >= 1)
     for column, values in cols.items():  # Iterates through each filter
         if column in ['age', 'tss']:
-            filtered_df = filtered_df[filtered_df[column].between(
-                values[0], values[1])]
+            filtered_df = filtered_df[filtered_df[column].between(values[0], values[1])]
         elif values:  # Only apply filter if values are not empty
             filtered_df = filtered_df[filtered_df[column].isin(values)]
-
+ 
     # Count non-blank records for each variable
-    non_blank_counts = {
-        var: filtered_df[var].notna().sum() for var in variables}
+    non_blank_counts = {var: filtered_df[var].notna().sum() for var in variables}
 
     return non_blank_counts, filtered_df
-
 
 # Define variables to count non-blank records
 variables = [
@@ -106,7 +68,7 @@ variables = [
     "lsi_ext_mvic_60", "lsi_flex_mvic_60", "lsi_ext_isok_60", "lsi_flex_isok_60",
     "lsi_ext_isok_90", "lsi_flex_isok_90", "lsi_ext_isok_180", "lsi_flex_isok_180",
     "rts", "reinjury"]
-
+        
 # Ask for filter criteria
 st.subheader("Enter criteria:")
 cols = {}
@@ -121,48 +83,35 @@ filter_columns = {
 # Make drop-down selections for each filter
 for column, options in filter_columns.items():
     if column == "Prior ACL?":
-        selected_values = st.multiselect(
-            f"Select value/s for '{column}' (**Leave blank to select all**)", options)
-        # Converting yes/no to 1/0
-        selected_values = [1 if v == "Yes" else 0 for v in selected_values]
+        selected_values = st.multiselect(f"Select value/s for '{column}' (**Leave blank to select all**)", options)
+        selected_values = [1 if v == "Yes" else 0 for v in selected_values]  # Converting yes/no to 1/0
         if selected_values:  # Only add to cols if not empty
             cols['prior_aclr'] = selected_values  # Correct column name
     elif column == "Participant Sex":
-        selected_values = st.multiselect(
-            f"Select value/s for '{column}' (**Leave blank to select all**)", options)
+        selected_values = st.multiselect(f"Select value/s for '{column}' (**Leave blank to select all**)", options)
         if selected_values:  # Only add to cols if not empty
             cols['sex_dashboard'] = selected_values  # Correct column name
     elif column == "Graft Type":
-        selected_values = st.multiselect(
-            f"Select value/s for '{column}' (**Leave blank to select all**)", options)
+        selected_values = st.multiselect(f"Select value/s for '{column}' (**Leave blank to select all**)", options)
         if selected_values:  # Only add to cols if not empty
             cols['graft_dashboard2'] = selected_values  # Correct column name
 
-# Add age range slider
+# Add age range slider  
 age_min = int(data['age'].min())  # Min age in dataset
-# Max age in dataset. Add 1 because int takes floor of float
-age_max = int(data['age'].max() + 1)
-age_range = st.slider("Select age range (**Leave blank to select all**)",
-                      min_value=age_min, max_value=age_max, value=(age_min, age_max), step=1)
+age_max = int(data['age'].max())  # Max age in dataset
+age_range = st.slider("Select age range (**Leave blank to select all**)", min_value=age_min, max_value=age_max, value=(age_min, age_max), step=1)
 cols['age'] = age_range
-
+ 
 # Add tss range slider
 tss_min = int(data['tss'].min())  # Min tss in dataset
-# Max tss in dataset. Add 1 because int takes floor of float
-tss_max = int(data['tss'].max() + 1)
-tss_range = st.slider("Select time since surgery range (**Leave blank to select all**)",
-                      min_value=tss_min, max_value=tss_max, value=(tss_min, tss_max), step=1)
+tss_max = int(data['tss'].max())  # Max tss in dataset
+tss_range = st.slider("Select time since surgery range (**Leave blank to select all**)", min_value=tss_min, max_value=tss_max, value=(tss_min, tss_max), step = 1)
 cols['tss'] = tss_range
-
-# Add long-term outcomes checkbox
-only_long_term_outcomes = st.checkbox(
-    "Include Only Results with a Long-Term Outcome", value=False)
 
 # Call the function
 if st.button("Apply Filters"):
-    result_counts, filtered_data = filter_count(
-        df=data, cols=cols, variables=variables)
-
+    result_counts, filtered_data = filter_count(df=data, cols=cols, variables=variables)
+        
     # Print results
     st.write("Counts of Non-Blank Records for Variables:")
     for var, count in result_counts.items():
