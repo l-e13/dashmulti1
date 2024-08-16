@@ -11,6 +11,10 @@ def check_password():
     def password_entered():
         """Checks whether a password entered by the user is correct."""
         secret_password = os.getenv("PASSWORD")
+        if secret_password is None:
+            st.error("Server error: secret password not set.")
+            return
+
         if hmac.compare_digest(st.session_state["password"], secret_password):
             st.session_state["password_correct"] = True
             del st.session_state["password"]  # deletes password
@@ -27,6 +31,7 @@ def check_password():
     if "password_correct" in st.session_state:
         st.error("😕 Password incorrect")
     return False
+
 
 
 if not check_password():
