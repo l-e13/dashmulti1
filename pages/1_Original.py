@@ -28,8 +28,6 @@ def check_password():
         st.error("😕 Password incorrect")
     return False
 
-
-
 if not check_password():
     st.stop()  # Do not continue if password is wrong
 
